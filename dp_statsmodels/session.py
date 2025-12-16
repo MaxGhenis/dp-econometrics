@@ -1,15 +1,15 @@
 """
 Privacy session for managing differential privacy budget across queries.
 
-The PrivacySession is the main user-facing interface for running
-DP econometric analyses while tracking cumulative privacy loss.
+The Session is the main user-facing interface for running DP statistical
+analyses while tracking cumulative privacy loss.
 """
 
 import numpy as np
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
-from dp_econometrics.privacy import PrivacyAccountant
-from dp_econometrics.models import (
+from dp_statsmodels.privacy import PrivacyAccountant
+from dp_statsmodels.models import (
     DPOLS,
     DPOLSResults,
     DPLogit,
@@ -19,11 +19,11 @@ from dp_econometrics.models import (
 )
 
 
-class PrivacySession:
+class Session:
     """
     Session for running DP analyses with budget tracking.
 
-    A PrivacySession manages a fixed privacy budget (ε, δ) and tracks
+    A Session manages a fixed privacy budget (ε, δ) and tracks
     cumulative privacy loss as queries are executed. When the budget
     is exhausted, no more queries can be run.
 
@@ -49,8 +49,9 @@ class PrivacySession:
 
     Examples
     --------
-    >>> session = PrivacySession(epsilon=1.0, delta=1e-5)
-    >>> result = session.ols(y, X)
+    >>> import dp_statsmodels.api as sm_dp
+    >>> session = sm_dp.Session(epsilon=1.0, delta=1e-5)
+    >>> result = session.OLS(y, X)
     >>> print(f"Budget remaining: ε = {session.epsilon_remaining:.3f}")
 
     Notes
@@ -78,6 +79,13 @@ class PrivacySession:
             delta_budget=delta,
             composition=composition
         )
+
+    # Context manager support
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return False
 
     @property
     def epsilon_spent(self) -> float:
@@ -132,7 +140,7 @@ class PrivacySession:
 
         return query_epsilon, query_delta
 
-    def ols(
+    def OLS(
         self,
         y: np.ndarray,
         X: np.ndarray,
@@ -164,7 +172,7 @@ class PrivacySession:
 
         Returns
         -------
-        DPOLSResults
+        OLSResults
             Results with coefficients, standard errors, etc.
 
         Raises
@@ -202,13 +210,13 @@ class PrivacySession:
         self._accountant.spend(
             epsilon=query_eps,
             delta=query_delta,
-            query_name=f"ols_{self.queries + 1}",
-            query_type="ols"
+            query_name=f"OLS_{self.queries + 1}",
+            query_type="OLS"
         )
 
         return result
 
-    def logit(
+    def Logit(
         self,
         y: np.ndarray,
         X: np.ndarray,
@@ -239,7 +247,7 @@ class PrivacySession:
 
         Returns
         -------
-        DPLogitResults
+        LogitResults
             Results with coefficients, standard errors, etc.
 
         Raises
@@ -275,25 +283,26 @@ class PrivacySession:
         self._accountant.spend(
             epsilon=query_eps,
             delta=query_delta,
-            query_name=f"logit_{self.queries + 1}",
-            query_type="logit"
+            query_name=f"Logit_{self.queries + 1}",
+            query_type="Logit"
         )
 
         return result
 
-    def fe(
+    def PanelOLS(
         self,
         y: np.ndarray,
         X: np.ndarray,
-        groups: np.ndarray,
+        groups: Optional[np.ndarray] = None,
+        entity_effects: bool = True,
         epsilon: Optional[float] = None,
         bounds_X: Optional[Tuple[float, float]] = None,
         bounds_y: Optional[Tuple[float, float]] = None,
     ) -> DPFixedEffectsResults:
         """
-        Run differentially private fixed effects regression.
+        Run differentially private panel OLS with fixed effects.
 
-        Uses within transformation to eliminate fixed effects, then
+        Uses within transformation to eliminate entity effects, then
         applies noisy sufficient statistics.
 
         Parameters
@@ -304,6 +313,8 @@ class PrivacySession:
             Design matrix (no constant - absorbed by FE).
         groups : np.ndarray
             Group/entity identifiers.
+        entity_effects : bool
+            Whether to include entity fixed effects (default True).
         epsilon : float, optional
             Epsilon budget for this query. If None, uses 10% of remaining.
         bounds_X : tuple, optional
@@ -313,14 +324,22 @@ class PrivacySession:
 
         Returns
         -------
-        DPFixedEffectsResults
+        PanelOLSResults
             Results with coefficients, standard errors, etc.
 
         Raises
         ------
         ValueError
-            If privacy budget is exhausted.
+            If privacy budget is exhausted or groups not provided.
         """
+        if groups is None:
+            raise ValueError("groups must be provided for PanelOLS")
+
+        if not entity_effects:
+            # If no entity effects, just run regular OLS
+            return self.OLS(y, X, epsilon=epsilon, bounds_X=bounds_X,
+                          bounds_y=bounds_y, add_constant=True)
+
         # Allocate budget
         query_eps, query_delta = self._allocate_budget(epsilon=epsilon)
 
@@ -351,22 +370,44 @@ class PrivacySession:
         self._accountant.spend(
             epsilon=query_eps,
             delta=query_delta,
-            query_name=f"fe_{self.queries + 1}",
-            query_type="fixed_effects"
+            query_name=f"PanelOLS_{self.queries + 1}",
+            query_type="PanelOLS"
         )
 
         return result
+
+    # Backwards compatible lowercase aliases
+    def ols(self, *args, **kwargs) -> DPOLSResults:
+        """Alias for OLS (backwards compatibility)."""
+        return self.OLS(*args, **kwargs)
+
+    def logit(self, *args, **kwargs) -> DPLogitResults:
+        """Alias for Logit (backwards compatibility)."""
+        return self.Logit(*args, **kwargs)
+
+    def fe(self, y, X, groups, **kwargs) -> DPFixedEffectsResults:
+        """Alias for PanelOLS (backwards compatibility)."""
+        return self.PanelOLS(y, X, groups=groups, entity_effects=True, **kwargs)
 
     def summary(self) -> str:
         """Get session summary including budget status."""
         return self._accountant.summary()
 
-    def get_history(self) -> list:
+    def history(self) -> List[dict]:
         """Get history of all queries."""
         return self._accountant.get_history()
 
+    # Backwards compatible alias
+    def get_history(self) -> List[dict]:
+        """Alias for history (backwards compatibility)."""
+        return self.history()
+
     def __repr__(self) -> str:
         return (
-            f"PrivacySession(ε={self.epsilon}, δ={self.delta}, "
+            f"Session(ε={self.epsilon}, δ={self.delta}, "
             f"spent={self.epsilon_spent:.4f}, queries={self.queries})"
         )
+
+
+# Backwards compatibility alias
+PrivacySession = Session

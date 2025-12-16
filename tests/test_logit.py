@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from dp_econometrics import PrivacySession
-from dp_econometrics.models import DPLogit
+from dp_statsmodels import PrivacySession
+from dp_statsmodels.models import DPLogit
 
 
 class TestDPLogitBasic:

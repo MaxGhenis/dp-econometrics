@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 import warnings
 
-from dp_econometrics.privacy import GaussianMechanism
+from dp_statsmodels.privacy import GaussianMechanism
 
 
 @dataclass

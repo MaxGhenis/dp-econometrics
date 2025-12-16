@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple, Union
 import warnings
 
-from dp_econometrics.privacy import (
+from dp_statsmodels.privacy import (
     compute_noisy_xtx,
     compute_noisy_xty,
     compute_xtx_sensitivity,
@@ -142,7 +142,7 @@ class DPFixedEffects:
     Examples
     --------
     >>> import numpy as np
-    >>> from dp_econometrics.models import DPFixedEffects
+    >>> from dp_statsmodels.models import DPFixedEffects
     >>> # Panel data: 100 entities, 10 time periods each
     >>> n_entities, n_periods = 100, 10
     >>> n = n_entities * n_periods

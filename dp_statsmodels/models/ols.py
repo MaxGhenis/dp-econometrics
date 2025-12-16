@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 import warnings
 
-from dp_econometrics.privacy import (
+from dp_statsmodels.privacy import (
     compute_noisy_xtx,
     compute_noisy_xty,
     compute_xtx_sensitivity,

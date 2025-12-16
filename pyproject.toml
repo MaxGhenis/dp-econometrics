@@ -1,7 +1,7 @@
 [project]
-name = "dp-econometrics"
+name = "dp-statsmodels"
 version = "0.1.0"
-description = "Differentially private econometric models with valid statistical inference"
+description = "Differentially private statistical models with valid inference - statsmodels-like API"
 authors = [{name = "Max Ghenis", email = "max@policyengine.org"}]
 license = {text = "MIT"}
 readme = "README.md"
@@ -24,10 +24,13 @@ keywords = [
     "regression",
     "statistics",
     "privacy",
+    "statsmodels",
 ]
 dependencies = [
     "numpy>=1.24.0",
     "pandas>=2.0.0",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
     "scipy>=1.10.0",
     "statsmodels>=0.14.0",
 ]
@@ -50,10 +53,10 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/MaxGhenis/dp-econometrics"
-Documentation = "https://maxghenis.github.io/dp-econometrics"
-Repository = "https://github.com/MaxGhenis/dp-econometrics"
-Issues = "https://github.com/MaxGhenis/dp-econometrics/issues"
+Homepage = "https://github.com/MaxGhenis/dp-statsmodels"
+Documentation = "https://maxghenis.github.io/dp-statsmodels"
+Repository = "https://github.com/MaxGhenis/dp-statsmodels"
+Issues = "https://github.com/MaxGhenis/dp-statsmodels/issues"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -61,7 +64,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["dp_econometrics*"]
+include = ["dp_statsmodels*"]
 
 [tool.black]
 line-length = 88
@@ -80,12 +83,12 @@ disallow_incomplete_defs = true
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-testpaths = ["tests", "dp_econometrics/tests"]
+testpaths = ["tests", "dp_statsmodels/tests"]
 addopts = [
     "-ra",
     "-q",
     "--strict-markers",
-    "--cov=dp_econometrics",
+    "--cov=dp_statsmodels",
     "--cov-report=term-missing",
 ]
 markers = [
@@ -94,7 +97,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["dp_econometrics"]
+source = ["dp_statsmodels"]
 
 [tool.coverage.report]
 exclude_lines = [
