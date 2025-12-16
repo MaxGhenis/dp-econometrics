@@ -1,0 +1,54 @@
+version: 1
+project:
+  title: dp-econometrics
+  subtitle: Differentially Private Econometrics with Valid Inference
+  authors:
+    - name: Max Ghenis
+      email: max@policyengine.org
+      affiliations:
+        - PolicyEngine
+  github: https://github.com/MaxGhenis/dp-econometrics
+  license: MIT
+
+  keywords:
+    - differential privacy
+    - econometrics
+    - linear regression
+    - logistic regression
+    - fixed effects
+    - statistical inference
+    - privacy budget
+
+  bibliography:
+    - references.bib
+
+  toc:
+    - file: intro.md
+    - title: Background
+      children:
+        - file: chapters/differential_privacy.md
+        - file: chapters/econometric_models.md
+        - file: chapters/inference_under_dp.md
+    - title: User Guide
+      children:
+        - file: api/quickstart.md
+        - file: api/privacy_session.md
+        - file: api/ols.md
+        - file: api/logit.md
+    - title: Examples
+      children:
+        - file: examples/basic_regression.md
+        - file: examples/privacy_budget.md
+    - title: Paper
+      children:
+        - file: paper/simulation_study.md
+    - file: api/reference.md
+    - file: references.md
+
+site:
+  title: dp-econometrics
+  template: book-theme
+
+build:
+  execute:
+    enabled: false  # Don't execute notebooks in CI initially
