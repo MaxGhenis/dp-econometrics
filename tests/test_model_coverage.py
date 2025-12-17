@@ -210,3 +210,84 @@ class TestPrivacyAccountingEdgeCases:
 
         accountant = PrivacyAccountant(epsilon_budget=1.0, delta_budget=1e-5)
         assert not accountant.can_afford(2.0, 1e-5)
+
+
+class TestLinAlgErrorHandling:
+    """Tests for LinAlgError handling in models."""
+
+    def test_ols_singular_solve(self):
+        """OLS should handle singular matrix in solve."""
+        from unittest.mock import patch
+        np.random.seed(42)
+        model = DPOLS(epsilon=5.0, delta=1e-5, bounds_X=(-5, 5), bounds_y=(-20, 20))
+        X = np.random.randn(100, 2)
+        y = np.random.randn(100)
+
+        # Mock linalg.solve to raise LinAlgError
+        with patch('numpy.linalg.solve', side_effect=np.linalg.LinAlgError):
+            with pytest.warns(UserWarning, match="[Ss]ingular"):
+                result = model.fit(y, X)
+                assert result.params is not None
+
+    def test_ols_singular_inv(self):
+        """OLS should handle singular matrix in inverse."""
+        from unittest.mock import patch
+        np.random.seed(42)
+        model = DPOLS(epsilon=5.0, delta=1e-5, bounds_X=(-5, 5), bounds_y=(-20, 20))
+        X = np.random.randn(100, 2)
+        y = np.random.randn(100)
+
+        # Mock linalg.inv to raise LinAlgError (after solve succeeds)
+        original_solve = np.linalg.solve
+        call_count = [0]
+
+        def mock_inv(a):
+            raise np.linalg.LinAlgError("Singular matrix")
+
+        with patch('numpy.linalg.inv', mock_inv):
+            result = model.fit(y, X)
+            assert result.params is not None
+
+    def test_fixed_effects_singular_solve(self):
+        """Fixed effects should handle singular matrix in solve."""
+        from unittest.mock import patch
+        np.random.seed(42)
+        model = DPFixedEffects(epsilon=5.0, delta=1e-5, bounds_X=(-5, 5), bounds_y=(-20, 20))
+        n_entities, n_periods = 20, 5
+        n = n_entities * n_periods
+        groups = np.repeat(np.arange(n_entities), n_periods)
+        X = np.random.randn(n, 2)
+        y = np.random.randn(n)
+
+        with patch('numpy.linalg.solve', side_effect=np.linalg.LinAlgError):
+            with pytest.warns(UserWarning, match="[Ss]ingular"):
+                result = model.fit(y, X, groups)
+                assert result.params is not None
+
+    def test_fixed_effects_singular_inv(self):
+        """Fixed effects should handle singular matrix in inverse."""
+        from unittest.mock import patch
+        np.random.seed(42)
+        model = DPFixedEffects(epsilon=5.0, delta=1e-5, bounds_X=(-5, 5), bounds_y=(-20, 20))
+        n_entities, n_periods = 20, 5
+        n = n_entities * n_periods
+        groups = np.repeat(np.arange(n_entities), n_periods)
+        X = np.random.randn(n, 2)
+        y = np.random.randn(n)
+
+        with patch('numpy.linalg.inv', side_effect=np.linalg.LinAlgError):
+            result = model.fit(y, X, groups)
+            assert result.params is not None
+
+    def test_logit_singular_inv(self):
+        """Logit should handle singular Fisher info matrix."""
+        from unittest.mock import patch
+        np.random.seed(42)
+        model = DPLogit(epsilon=5.0, delta=1e-5, bounds_X=(-5, 5))
+        X = np.random.randn(100, 2)
+        y = (np.random.rand(100) > 0.5).astype(float)
+
+        with patch('numpy.linalg.inv', side_effect=np.linalg.LinAlgError):
+            result = model.fit(y, X)
+            # bse should be NaN when Fisher info is singular
+            assert np.all(np.isnan(result.bse))

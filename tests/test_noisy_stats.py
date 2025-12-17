@@ -85,6 +85,16 @@ class TestNoisyXtY:
                                    bounds_X=(-1, 1), bounds_y=(-10, 10), clip=True)
         assert result is not None
 
+    def test_no_clipping(self):
+        """Should not clip data when clip=False."""
+        np.random.seed(42)
+        X = np.random.randn(100, 2)
+        y = np.random.randn(100)
+
+        result = compute_noisy_xty(X, y, epsilon=5.0, delta=1e-5,
+                                   bounds_X=(-5, 5), bounds_y=(-20, 20), clip=False)
+        assert result is not None
+
 
 class TestNoisyYtY:
     """Tests for compute_noisy_yty."""
@@ -113,6 +123,15 @@ class TestNoisyYtY:
 
         result = compute_noisy_yty(y, epsilon=5.0, delta=1e-5,
                                    bounds_y=(-10, 10), clip=True)
+        assert result is not None
+
+    def test_no_clipping(self):
+        """Should not clip data when clip=False."""
+        np.random.seed(42)
+        y = np.random.randn(100)
+
+        result = compute_noisy_yty(y, epsilon=5.0, delta=1e-5,
+                                   bounds_y=(-20, 20), clip=False)
         assert result is not None
 
 

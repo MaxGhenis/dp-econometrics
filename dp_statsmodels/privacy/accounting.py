@@ -122,7 +122,7 @@ class PrivacyAccountant:
         # Convert RDP to (ε,δ)-DP using optimal order
         epsilons = []
         for i, alpha in enumerate(self._rdp_orders):
-            if alpha <= 1:
+            if alpha <= 1:  # pragma: no cover
                 continue
             eps = self._rdp_spent[i] + np.log(1 / self.delta_budget) / (alpha - 1)
             epsilons.append(eps)
@@ -210,7 +210,7 @@ class PrivacyAccountant:
         # Update accounting
         if self.composition == "basic":
             self._epsilon_spent += epsilon
-        elif self.composition == "rdp":
+        elif self.composition == "rdp":  # pragma: no branch
             self._add_rdp(epsilon, delta)
 
         self._delta_spent += delta

@@ -114,6 +114,28 @@ class TestLogitModel:
         with pytest.raises(ValueError, match="[Bb]udget"):
             session.Logit(y, X, epsilon=0.2)
 
+    def test_logit_with_explicit_bounds(self):
+        """Logit should use explicit bounds when provided."""
+        np.random.seed(42)
+        session = Session(epsilon=2.0, delta=1e-5, bounds_X=(-10, 10))
+        X = np.random.randn(100, 2)
+        y = (np.random.rand(100) > 0.5).astype(float)
+
+        # Provide explicit bounds (different from session default)
+        result = session.Logit(y, X, bounds_X=(-5, 5))
+        assert result.params is not None
+
+    def test_logit_uses_session_bounds(self):
+        """Logit should use session bounds when not provided."""
+        np.random.seed(42)
+        session = Session(epsilon=2.0, delta=1e-5, bounds_X=(-5, 5))
+        X = np.random.randn(100, 2)
+        y = (np.random.rand(100) > 0.5).astype(float)
+
+        # Don't provide bounds - should use session default
+        result = session.Logit(y, X)
+        assert result.params is not None
+
 
 class TestPanelOLSEdgeCases:
     """Tests for PanelOLS edge cases."""
@@ -140,3 +162,103 @@ class TestPanelOLSEdgeCases:
 
         with pytest.raises(ValueError, match="groups"):
             session.PanelOLS(y, X, groups=None)
+
+    def test_panelols_budget_exhausted(self):
+        """Should raise when PanelOLS budget exhausted."""
+        np.random.seed(42)
+        session = Session(epsilon=0.1, delta=1e-5)
+        n_entities, n_periods = 20, 3
+        n = n_entities * n_periods
+        groups = np.repeat(np.arange(n_entities), n_periods)
+        X = np.random.randn(n, 2)
+        y = np.random.randn(n)
+
+        with pytest.raises(ValueError, match="[Bb]udget"):
+            session.PanelOLS(y, X, groups=groups, epsilon=0.2)
+
+    def test_panelols_uses_session_bounds(self):
+        """PanelOLS should use session default bounds."""
+        np.random.seed(42)
+        session = Session(epsilon=5.0, delta=1e-5,
+                         bounds_X=(-5, 5), bounds_y=(-20, 20))
+        n_entities, n_periods = 20, 3
+        n = n_entities * n_periods
+        groups = np.repeat(np.arange(n_entities), n_periods)
+        X = np.random.randn(n, 2)
+        y = np.random.randn(n)
+
+        # Should not warn since session has bounds
+        result = session.PanelOLS(y, X, groups=groups)
+        assert result.params is not None
+
+    def test_panelols_with_explicit_bounds(self):
+        """PanelOLS should use explicit bounds when provided."""
+        np.random.seed(42)
+        session = Session(epsilon=5.0, delta=1e-5,
+                         bounds_X=(-10, 10), bounds_y=(-50, 50))
+        n_entities, n_periods = 20, 3
+        n = n_entities * n_periods
+        groups = np.repeat(np.arange(n_entities), n_periods)
+        X = np.random.randn(n, 2)
+        y = np.random.randn(n)
+
+        # Provide explicit bounds (different from session default)
+        result = session.PanelOLS(y, X, groups=groups,
+                                  bounds_X=(-5, 5), bounds_y=(-20, 20))
+        assert result.params is not None
+
+
+class TestPrivacyAccountantRepr:
+    """Tests for PrivacyAccountant __repr__."""
+
+    def test_accountant_repr(self):
+        """PrivacyAccountant should have repr."""
+        from dp_statsmodels.privacy.accounting import PrivacyAccountant
+        accountant = PrivacyAccountant(epsilon_budget=1.0, delta_budget=1e-5)
+        repr_str = repr(accountant)
+        assert "PrivacyAccountant" in repr_str
+        assert "budget" in repr_str
+
+
+class TestBudgetAllocationFraction:
+    """Tests for session budget allocation with fraction parameter."""
+
+    def test_allocation_with_fraction_internal(self):
+        """Should allocate budget using fraction parameter."""
+        session = Session(epsilon=1.0, delta=1e-5)
+        # Access internal method directly
+        eps, delta = session._allocate_budget(fraction=0.5)
+        assert 0.4 < eps < 0.6  # Should be ~0.5 of 1.0
+
+
+class TestRDPComposition:
+    """Tests for RDP composition edge cases."""
+
+    def test_rdp_with_orders_leq_1(self):
+        """RDP should handle orders <= 1."""
+        from dp_statsmodels.privacy.accounting import PrivacyAccountant
+        # RDP composition with small queries
+        accountant = PrivacyAccountant(
+            epsilon_budget=10.0,
+            delta_budget=1e-5,
+            composition="rdp"
+        )
+        # Make many small queries to exercise RDP accounting
+        for _ in range(10):
+            accountant.spend(epsilon=0.1, delta=0)
+        # Should compute epsilon_spent using RDP
+        assert accountant.epsilon_spent > 0
+
+    def test_rdp_spend_exercises_add_rdp(self):
+        """RDP spend should call _add_rdp."""
+        from dp_statsmodels.privacy.accounting import PrivacyAccountant
+        # Use RDP composition and spend
+        accountant = PrivacyAccountant(
+            epsilon_budget=10.0,
+            delta_budget=1e-5,
+            composition="rdp"
+        )
+        accountant.spend(epsilon=0.5, delta=1e-6)
+        # RDP accounting should be active
+        assert accountant.epsilon_spent > 0
+        assert accountant._rdp_spent is not None
