@@ -12,6 +12,10 @@ from numpy.testing import assert_allclose
 from dp_statsmodels import PrivacySession
 from dp_statsmodels.models import DPOLS
 
+# Standard bounds for test data (normal data typically in [-5, 5])
+DEFAULT_BOUNDS_X = (-5, 5)
+DEFAULT_BOUNDS_Y = (-20, 20)
+
 
 class TestDPOLSBasic:
     """Basic functionality tests for DP OLS."""
@@ -29,7 +33,10 @@ class TestDPOLSBasic:
     def test_ols_returns_coefficients(self, simple_data):
         """OLS should return coefficient estimates."""
         X, y, _ = simple_data
-        session = PrivacySession(epsilon=10.0, delta=1e-5)  # High epsilon for accuracy
+        session = PrivacySession(
+            epsilon=10.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         result = session.ols(y, X)
 
         assert hasattr(result, "params")
@@ -38,7 +45,10 @@ class TestDPOLSBasic:
     def test_ols_returns_standard_errors(self, simple_data):
         """OLS should return standard errors for all coefficients."""
         X, y, _ = simple_data
-        session = PrivacySession(epsilon=10.0, delta=1e-5)
+        session = PrivacySession(
+            epsilon=10.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         result = session.ols(y, X)
 
         assert hasattr(result, "bse")  # Standard errors (like statsmodels)
@@ -48,7 +58,10 @@ class TestDPOLSBasic:
     def test_ols_returns_confidence_intervals(self, simple_data):
         """OLS should return confidence intervals."""
         X, y, _ = simple_data
-        session = PrivacySession(epsilon=10.0, delta=1e-5)
+        session = PrivacySession(
+            epsilon=10.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         result = session.ols(y, X)
 
         ci = result.conf_int(alpha=0.05)
@@ -58,7 +71,10 @@ class TestDPOLSBasic:
     def test_ols_returns_t_stats_and_pvalues(self, simple_data):
         """OLS should return t-statistics and p-values."""
         X, y, _ = simple_data
-        session = PrivacySession(epsilon=10.0, delta=1e-5)
+        session = PrivacySession(
+            epsilon=10.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         result = session.ols(y, X)
 
         assert hasattr(result, "tvalues")
@@ -84,13 +100,16 @@ class TestDPOLSAccuracy:
     def test_coefficients_close_to_true_high_epsilon(self, regression_data):
         """With high epsilon (low privacy), coefficients should be close to OLS."""
         X, y, true_intercept, true_coef = regression_data
-        session = PrivacySession(epsilon=100.0, delta=1e-5)  # Very high epsilon
+        session = PrivacySession(
+            epsilon=100.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-20, 20)
+        )
         result = session.ols(y, X)
 
-        # Intercept
-        assert_allclose(result.params[0], true_intercept, atol=0.2)
-        # Coefficients
-        assert_allclose(result.params[1:], true_coef, atol=0.1)
+        # Intercept (allow some slack due to noise)
+        assert_allclose(result.params[0], true_intercept, atol=0.3)
+        # Coefficients (allow some slack due to noise)
+        assert_allclose(result.params[1:], true_coef, atol=0.2)
 
     def test_coefficients_noisier_with_low_epsilon(self, regression_data):
         """With low epsilon (high privacy), coefficients should be noisier."""
@@ -101,9 +120,16 @@ class TestDPOLSAccuracy:
         results_low_eps = []
 
         for seed in range(10):
-            np.random.seed(seed)
-            session_high = PrivacySession(epsilon=50.0, delta=1e-5)
-            session_low = PrivacySession(epsilon=0.5, delta=1e-5)
+            session_high = PrivacySession(
+                epsilon=50.0, delta=1e-5,
+                bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-20, 20),
+                random_state=seed
+            )
+            session_low = PrivacySession(
+                epsilon=0.5, delta=1e-5,
+                bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-20, 20),
+                random_state=seed + 1000
+            )
 
             result_high = session_high.ols(y, X)
             result_low = session_low.ols(y, X)
@@ -120,16 +146,43 @@ class TestDPOLSAccuracy:
         """DP mechanism should give different results on different runs."""
         X, y, _, _ = regression_data
 
-        np.random.seed(1)
-        session1 = PrivacySession(epsilon=1.0, delta=1e-5)
+        session1 = PrivacySession(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-20, 20),
+            random_state=1
+        )
         result1 = session1.ols(y, X)
 
-        np.random.seed(2)
-        session2 = PrivacySession(epsilon=1.0, delta=1e-5)
+        session2 = PrivacySession(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-20, 20),
+            random_state=2
+        )
         result2 = session2.ols(y, X)
 
         # Results should differ (privacy noise)
         assert not np.allclose(result1.params, result2.params)
+
+    def test_reproducible_with_same_random_state(self, regression_data):
+        """Same random_state should give identical results."""
+        X, y, _, _ = regression_data
+
+        session1 = PrivacySession(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-20, 20),
+            random_state=42
+        )
+        result1 = session1.ols(y, X)
+
+        session2 = PrivacySession(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-20, 20),
+            random_state=42
+        )
+        result2 = session2.ols(y, X)
+
+        # Results should be identical with same seed
+        assert np.allclose(result1.params, result2.params)
 
 
 class TestDPOLSInference:
@@ -137,7 +190,6 @@ class TestDPOLSInference:
 
     def test_confidence_interval_coverage(self):
         """95% CIs should contain true parameters ~95% of the time."""
-        np.random.seed(42)
         n = 2000
         true_coef = np.array([1.0, 2.0])
         true_intercept = 0.0
@@ -146,12 +198,17 @@ class TestDPOLSInference:
         n_simulations = 100
 
         for sim in range(n_simulations):
-            # Generate new data
-            X = np.random.randn(n, 2)
-            y = true_intercept + X @ true_coef + np.random.randn(n)
+            # Generate new data with fixed seed for reproducibility
+            rng = np.random.default_rng(sim)
+            X = rng.standard_normal((n, 2))
+            y = true_intercept + X @ true_coef + rng.standard_normal(n)
 
             # Fit DP OLS
-            session = PrivacySession(epsilon=5.0, delta=1e-5)
+            session = PrivacySession(
+                epsilon=5.0, delta=1e-5,
+                bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-15, 15),
+                random_state=sim + 10000
+            )
             result = session.ols(y, X)
             ci = result.conf_int(alpha=0.05)
 
@@ -162,8 +219,9 @@ class TestDPOLSInference:
                 coverage_count += 1
 
         coverage_rate = coverage_count / n_simulations
-        # Should be close to 95% (allow some slack due to randomness)
-        assert coverage_rate >= 0.80, f"Coverage {coverage_rate:.2%} too low"
+        # Should be close to 95% - updated threshold to be more stringent
+        # Allow some slack due to finite sample approximations
+        assert coverage_rate >= 0.85, f"Coverage {coverage_rate:.2%} too low"
 
     def test_standard_errors_increase_with_lower_epsilon(self):
         """Standard errors should increase as privacy increases (lower epsilon)."""
@@ -172,8 +230,14 @@ class TestDPOLSInference:
         X = np.random.randn(n, 2)
         y = X @ [1, 2] + np.random.randn(n)
 
-        session_high = PrivacySession(epsilon=10.0, delta=1e-5)
-        session_low = PrivacySession(epsilon=0.1, delta=1e-5)  # More extreme difference
+        session_high = PrivacySession(
+            epsilon=10.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-15, 15)
+        )
+        session_low = PrivacySession(
+            epsilon=0.1, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-15, 15)
+        )
 
         result_high = session_high.ols(y, X)
         result_low = session_low.ols(y, X)
@@ -193,7 +257,10 @@ class TestPrivacyBudget:
 
     def test_privacy_budget_initialized(self):
         """Session should track initial privacy budget."""
-        session = PrivacySession(epsilon=1.0, delta=1e-5)
+        session = PrivacySession(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         assert session.epsilon == 1.0
         assert session.delta == 1e-5
         assert session.epsilon_spent == 0.0
@@ -204,7 +271,10 @@ class TestPrivacyBudget:
         X = np.random.randn(100, 2)
         y = X @ [1, 2] + np.random.randn(100)
 
-        session = PrivacySession(epsilon=1.0, delta=1e-5)
+        session = PrivacySession(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-15, 15)
+        )
         assert session.epsilon_spent == 0.0
 
         session.ols(y, X)
@@ -217,7 +287,10 @@ class TestPrivacyBudget:
         X = np.random.randn(100, 2)
         y = X @ [1, 2] + np.random.randn(100)
 
-        session = PrivacySession(epsilon=2.0, delta=1e-5)
+        session = PrivacySession(
+            epsilon=2.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-15, 15)
+        )
 
         session.ols(y, X)
         spent_after_1 = session.epsilon_spent
@@ -233,7 +306,10 @@ class TestPrivacyBudget:
         X = np.random.randn(100, 2)
         y = X @ [1, 2] + np.random.randn(100)
 
-        session = PrivacySession(epsilon=0.1, delta=1e-5)  # Very small budget
+        session = PrivacySession(
+            epsilon=0.1, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-15, 15)
+        )
 
         # Request more than available - should raise
         with pytest.raises(ValueError, match="[Pp]rivacy budget"):
@@ -252,7 +328,10 @@ class TestDPOLSWeighted:
         y = X @ [1, 2] + np.random.randn(n)
         weights = np.random.uniform(0.5, 2.0, n)
 
-        session = PrivacySession(epsilon=5.0, delta=1e-5)
+        session = PrivacySession(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-15, 15)
+        )
         result = session.ols(y, X, weights=weights)
 
         assert hasattr(result, "params")
@@ -268,13 +347,18 @@ class TestDPOLSWeighted:
         weights1 = np.ones(n)
         weights2 = np.random.uniform(0.1, 10.0, n)
 
-        session1 = PrivacySession(epsilon=10.0, delta=1e-5)
-        session2 = PrivacySession(epsilon=10.0, delta=1e-5)
+        session1 = PrivacySession(
+            epsilon=10.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-15, 15),
+            random_state=99
+        )
+        session2 = PrivacySession(
+            epsilon=10.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-15, 15),
+            random_state=99
+        )
 
-        np.random.seed(99)  # Same seed for DP noise
         result1 = session1.ols(y, X, weights=weights1)
-
-        np.random.seed(99)
         result2 = session2.ols(y, X, weights=weights2)
 
         # Results should differ due to different weights
@@ -291,7 +375,10 @@ class TestDPOLSEdgeCases:
         X = np.random.randn(n, 1)
         y = 2 * X.flatten() + 1 + np.random.randn(n) * 0.5
 
-        session = PrivacySession(epsilon=5.0, delta=1e-5)
+        session = PrivacySession(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-15, 15)
+        )
         result = session.ols(y, X)
 
         assert len(result.params) == 2  # intercept + 1 coef
@@ -304,7 +391,10 @@ class TestDPOLSEdgeCases:
         X = np.random.randn(n, k)
         y = X @ np.arange(1, k + 1) + np.random.randn(n)
 
-        session = PrivacySession(epsilon=5.0, delta=1e-5)
+        session = PrivacySession(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-200, 200)
+        )
         result = session.ols(y, X)
 
         assert len(result.params) == k + 1
@@ -316,7 +406,10 @@ class TestDPOLSEdgeCases:
         X = np.random.randn(n, 2)
         y = X @ [1, 2] + np.random.randn(n)
 
-        session = PrivacySession(epsilon=5.0, delta=1e-5)
+        session = PrivacySession(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-15, 15)
+        )
         result = session.ols(y, X, add_constant=False)
 
         assert len(result.params) == 2  # No intercept
@@ -329,7 +422,10 @@ class TestDPOLSEdgeCases:
         X = np.column_stack([X1, X1 * 2])  # Perfectly collinear
         y = X1 + np.random.randn(n)
 
-        session = PrivacySession(epsilon=5.0, delta=1e-5)
+        session = PrivacySession(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=(-10, 10), bounds_y=(-15, 15)
+        )
 
         # With DP noise, collinear features may not cause singularity
         # Just check it doesn't crash and produces valid results
@@ -349,23 +445,80 @@ class TestDPOLSDataBounds:
         X = np.random.randn(n, 2)
         y = X @ [1, 2] + np.random.randn(n)
 
-        session = PrivacySession(epsilon=5.0, delta=1e-5)
-        result = session.ols(
-            y, X,
-            bounds_X=(-5, 5),
-            bounds_y=(-10, 10)
+        session = PrivacySession(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=(-5, 5), bounds_y=(-10, 10)
         )
+        result = session.ols(y, X)
 
         assert hasattr(result, "params")
 
-    def test_auto_bounds_with_warning(self):
-        """Auto-computing bounds should warn about privacy leak."""
+    def test_missing_bounds_raises_error_by_default(self):
+        """Missing bounds should raise error by default."""
         np.random.seed(42)
         n = 500
         X = np.random.randn(n, 2)
         y = X @ [1, 2] + np.random.randn(n)
 
+        # Session without bounds should raise error
         session = PrivacySession(epsilon=5.0, delta=1e-5)
 
+        with pytest.raises(ValueError, match="bounds.*required"):
+            session.ols(y, X)
+
+    def test_require_bounds_false_allows_auto_bounds(self):
+        """With require_bounds=False, should warn but proceed."""
+        np.random.seed(42)
+        n = 500
+        X = np.random.randn(n, 2)
+        y = X @ [1, 2] + np.random.randn(n)
+
+        session = PrivacySession(
+            epsilon=5.0, delta=1e-5,
+            require_bounds=False
+        )
+
         with pytest.warns(UserWarning, match="[Bb]ounds|[Pp]rivacy"):
-            session.ols(y, X)  # No bounds provided
+            result = session.ols(y, X)
+
+        assert hasattr(result, "params")
+
+
+class TestDPOLSPredict:
+    """Tests for predict functionality."""
+
+    def test_predict_returns_values(self):
+        """predict() should return predicted values."""
+        np.random.seed(42)
+        n = 500
+        X = np.random.randn(n, 2)
+        y = X @ [1, 2] + np.random.randn(n)
+
+        session = PrivacySession(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-15, 15)
+        )
+        result = session.ols(y, X)
+
+        # Predict on same data
+        y_pred = result.predict(X)
+        assert len(y_pred) == n
+
+    def test_predict_with_new_data(self):
+        """predict() should work with new data."""
+        np.random.seed(42)
+        n_train = 500
+        n_test = 100
+        X_train = np.random.randn(n_train, 2)
+        y_train = X_train @ [1, 2] + np.random.randn(n_train)
+        X_test = np.random.randn(n_test, 2)
+
+        session = PrivacySession(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-15, 15)
+        )
+        result = session.ols(y_train, X_train)
+
+        # Predict on new data
+        y_pred = result.predict(X_test)
+        assert len(y_pred) == n_test

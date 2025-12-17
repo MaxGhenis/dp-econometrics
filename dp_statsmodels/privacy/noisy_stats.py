@@ -6,7 +6,7 @@ Gaussian noise for (ε,δ)-differential privacy.
 """
 
 import numpy as np
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 import warnings
 
 from .mechanisms import GaussianMechanism
@@ -18,12 +18,26 @@ from .sensitivity import (
 )
 
 
+def _get_rng(
+    random_state: Optional[Union[int, np.random.Generator]] = None
+) -> np.random.Generator:
+    """Get a numpy random Generator from various inputs."""
+    if random_state is None:
+        return np.random.default_rng()
+    elif isinstance(random_state, np.random.Generator):
+        return random_state
+    else:
+        return np.random.default_rng(random_state)
+
+
 def compute_noisy_xtx(
     X: np.ndarray,
     epsilon: float,
     delta: float,
     bounds_X: Optional[Tuple[float, float]] = None,
-    clip: bool = True
+    clip: bool = True,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
+    require_bounds: bool = True,
 ) -> np.ndarray:
     """
     Compute X'X with Gaussian noise for differential privacy.
@@ -37,25 +51,43 @@ def compute_noisy_xtx(
     delta : float
         Privacy parameter δ.
     bounds_X : tuple of (min, max), optional
-        Bounds on feature values. If None, computed from data (privacy leak!).
+        Bounds on feature values. Required for proper DP guarantees.
     clip : bool
         Whether to clip X to bounds before computing.
+    random_state : int or np.random.Generator, optional
+        Random state for reproducibility.
+    require_bounds : bool
+        If True (default), raise error when bounds not provided.
+        Set to False only for testing/development.
 
     Returns
     -------
     np.ndarray of shape (k, k)
         Noisy X'X matrix (symmetric).
+
+    Raises
+    ------
+    ValueError
+        If bounds_X is None and require_bounds is True.
     """
     n, k = X.shape
+    rng = _get_rng(random_state)
 
     # Handle bounds
     if bounds_X is None:
-        warnings.warn(
-            "No bounds_X provided. Computing bounds from data leaks privacy. "
-            "Provide bounds_X for proper differential privacy.",
-            UserWarning
-        )
-        bounds_X = (X.min(), X.max())
+        if require_bounds:
+            raise ValueError(
+                "bounds_X is required for differential privacy guarantees. "
+                "Computing bounds from data completely breaks privacy. "
+                "Set require_bounds=False only for testing/development."
+            )
+        else:
+            warnings.warn(
+                "No bounds_X provided. Computing bounds from data leaks privacy. "
+                "This mode should only be used for testing/development.",
+                UserWarning
+            )
+            bounds_X = (X.min(), X.max())
 
     # Clip data to bounds
     if clip:
@@ -70,11 +102,23 @@ def compute_noisy_xtx(
     # Create mechanism and add noise
     mechanism = GaussianMechanism(sensitivity, epsilon, delta)
 
-    # Add noise to upper triangle, then symmetrize
-    noise = np.random.normal(0, mechanism.sigma, (k, k))
-    noise_symmetric = (noise + noise.T) / 2
+    # Add noise to symmetric matrix correctly:
+    # Generate noise for upper triangle (including diagonal) only,
+    # then mirror to lower triangle. This ensures each unique entry
+    # gets independent N(0, σ²) noise with the correct variance.
+    noise_matrix = np.zeros((k, k))
+    # Number of unique entries in upper triangle (including diagonal)
+    n_unique = k * (k + 1) // 2
+    noise_values = rng.normal(0, mechanism.sigma, n_unique)
 
-    noisy_xtx = xtx + noise_symmetric
+    idx = 0
+    for i in range(k):
+        for j in range(i, k):
+            noise_matrix[i, j] = noise_values[idx]
+            noise_matrix[j, i] = noise_values[idx]  # Mirror to lower triangle
+            idx += 1
+
+    noisy_xtx = xtx + noise_matrix
 
     return noisy_xtx
 
@@ -86,7 +130,9 @@ def compute_noisy_xty(
     delta: float,
     bounds_X: Optional[Tuple[float, float]] = None,
     bounds_y: Optional[Tuple[float, float]] = None,
-    clip: bool = True
+    clip: bool = True,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
+    require_bounds: bool = True,
 ) -> np.ndarray:
     """
     Compute X'y with Gaussian noise for differential privacy.
@@ -102,33 +148,53 @@ def compute_noisy_xty(
     delta : float
         Privacy parameter δ.
     bounds_X : tuple of (min, max), optional
-        Bounds on feature values.
+        Bounds on feature values. Required for proper DP guarantees.
     bounds_y : tuple of (min, max), optional
-        Bounds on response variable.
+        Bounds on response variable. Required for proper DP guarantees.
     clip : bool
         Whether to clip data to bounds.
+    random_state : int or np.random.Generator, optional
+        Random state for reproducibility.
+    require_bounds : bool
+        If True (default), raise error when bounds not provided.
 
     Returns
     -------
     np.ndarray of shape (k,)
         Noisy X'y vector.
+
+    Raises
+    ------
+    ValueError
+        If bounds_X or bounds_y is None and require_bounds is True.
     """
     n, k = X.shape
+    rng = _get_rng(random_state)
 
     # Handle bounds
     if bounds_X is None:
-        warnings.warn(
-            "No bounds_X provided. Computing from data leaks privacy.",
-            UserWarning
-        )
-        bounds_X = (X.min(), X.max())
+        if require_bounds:
+            raise ValueError(
+                "bounds_X is required for differential privacy guarantees."
+            )
+        else:
+            warnings.warn(
+                "No bounds_X provided. Computing from data leaks privacy.",
+                UserWarning
+            )
+            bounds_X = (X.min(), X.max())
 
     if bounds_y is None:
-        warnings.warn(
-            "No bounds_y provided. Computing from data leaks privacy.",
-            UserWarning
-        )
-        bounds_y = (y.min(), y.max())
+        if require_bounds:
+            raise ValueError(
+                "bounds_y is required for differential privacy guarantees."
+            )
+        else:
+            warnings.warn(
+                "No bounds_y provided. Computing from data leaks privacy.",
+                UserWarning
+            )
+            bounds_y = (y.min(), y.max())
 
     # Clip data
     if clip:
@@ -143,7 +209,7 @@ def compute_noisy_xty(
 
     # Create mechanism and add noise
     mechanism = GaussianMechanism(sensitivity, epsilon, delta)
-    noise = np.random.normal(0, mechanism.sigma, k)
+    noise = rng.normal(0, mechanism.sigma, k)
 
     noisy_xty = xty + noise
 
@@ -155,7 +221,9 @@ def compute_noisy_yty(
     epsilon: float,
     delta: float,
     bounds_y: Optional[Tuple[float, float]] = None,
-    clip: bool = True
+    clip: bool = True,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
+    require_bounds: bool = True,
 ) -> float:
     """
     Compute y'y with Gaussian noise for differential privacy.
@@ -169,21 +237,32 @@ def compute_noisy_yty(
     delta : float
         Privacy parameter.
     bounds_y : tuple, optional
-        Bounds on y.
+        Bounds on y. Required for proper DP guarantees.
     clip : bool
         Whether to clip.
+    random_state : int or np.random.Generator, optional
+        Random state for reproducibility.
+    require_bounds : bool
+        If True (default), raise error when bounds not provided.
 
     Returns
     -------
     float
         Noisy y'y.
     """
+    rng = _get_rng(random_state)
+
     if bounds_y is None:
-        warnings.warn(
-            "No bounds_y provided. Computing from data leaks privacy.",
-            UserWarning
-        )
-        bounds_y = (y.min(), y.max())
+        if require_bounds:
+            raise ValueError(
+                "bounds_y is required for differential privacy guarantees."
+            )
+        else:
+            warnings.warn(
+                "No bounds_y provided. Computing from data leaks privacy.",
+                UserWarning
+            )
+            bounds_y = (y.min(), y.max())
 
     if clip:
         y = np.clip(y, bounds_y[0], bounds_y[1])
@@ -193,7 +272,7 @@ def compute_noisy_yty(
     sensitivity = compute_yty_sensitivity(bounds_y)
     mechanism = GaussianMechanism(sensitivity, epsilon, delta)
 
-    noisy_yty = mechanism.add_noise(yty)
+    noisy_yty = float(yty) + rng.normal(0, mechanism.sigma)
 
     return noisy_yty
 
@@ -201,7 +280,8 @@ def compute_noisy_yty(
 def compute_noisy_n(
     n: int,
     epsilon: float,
-    delta: float
+    delta: float,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
 ) -> float:
     """
     Compute noisy count for differential privacy.
@@ -214,16 +294,19 @@ def compute_noisy_n(
         Privacy parameter.
     delta : float
         Privacy parameter.
+    random_state : int or np.random.Generator, optional
+        Random state for reproducibility.
 
     Returns
     -------
     float
         Noisy count.
     """
+    rng = _get_rng(random_state)
     sensitivity = compute_n_sensitivity()
     mechanism = GaussianMechanism(sensitivity, epsilon, delta)
 
-    return mechanism.add_noise(float(n))
+    return float(n) + rng.normal(0, mechanism.sigma)
 
 
 def compute_all_noisy_stats(
@@ -233,7 +316,9 @@ def compute_all_noisy_stats(
     delta: float,
     bounds_X: Optional[Tuple[float, float]] = None,
     bounds_y: Optional[Tuple[float, float]] = None,
-    epsilon_split: Optional[dict] = None
+    epsilon_split: Optional[dict] = None,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
+    require_bounds: bool = True,
 ) -> dict:
     """
     Compute all noisy sufficient statistics for OLS.
@@ -251,11 +336,15 @@ def compute_all_noisy_stats(
     delta : float
         Total delta budget.
     bounds_X : tuple, optional
-        Bounds on X.
+        Bounds on X. Required for proper DP guarantees.
     bounds_y : tuple, optional
-        Bounds on y.
+        Bounds on y. Required for proper DP guarantees.
     epsilon_split : dict, optional
         How to split epsilon. Default is equal split.
+    random_state : int or np.random.Generator, optional
+        Random state for reproducibility.
+    require_bounds : bool
+        If True (default), raise error when bounds not provided.
 
     Returns
     -------
@@ -275,21 +364,23 @@ def compute_all_noisy_stats(
     delta_per_stat = delta / 4
 
     n = len(y)
+    rng = _get_rng(random_state)
 
     return {
         'xtx': compute_noisy_xtx(
             X, epsilon * epsilon_split['xtx'], delta_per_stat,
-            bounds_X
+            bounds_X, random_state=rng, require_bounds=require_bounds
         ),
         'xty': compute_noisy_xty(
             X, y, epsilon * epsilon_split['xty'], delta_per_stat,
-            bounds_X, bounds_y
+            bounds_X, bounds_y, random_state=rng, require_bounds=require_bounds
         ),
         'yty': compute_noisy_yty(
             y, epsilon * epsilon_split['yty'], delta_per_stat,
-            bounds_y
+            bounds_y, random_state=rng, require_bounds=require_bounds
         ),
         'n': compute_noisy_n(
-            n, epsilon * epsilon_split['n'], delta_per_stat
+            n, epsilon * epsilon_split['n'], delta_per_stat,
+            random_state=rng
         )
     }

@@ -25,13 +25,22 @@ class TestNoisyXtX:
         assert result.shape == (3, 3)
         assert np.allclose(result, result.T)  # Symmetric
 
-    def test_no_bounds_warns(self):
-        """Should warn when bounds not provided."""
+    def test_no_bounds_raises_error_by_default(self):
+        """Should raise error when bounds not provided (default)."""
+        np.random.seed(42)
+        X = np.random.randn(100, 2)
+
+        with pytest.raises(ValueError, match="bounds.*required"):
+            compute_noisy_xtx(X, epsilon=5.0, delta=1e-5, bounds_X=None)
+
+    def test_no_bounds_warns_when_require_bounds_false(self):
+        """Should warn when bounds not provided and require_bounds=False."""
         np.random.seed(42)
         X = np.random.randn(100, 2)
 
         with pytest.warns(UserWarning, match="bounds"):
-            compute_noisy_xtx(X, epsilon=5.0, delta=1e-5, bounds_X=None)
+            compute_noisy_xtx(X, epsilon=5.0, delta=1e-5, bounds_X=None,
+                            require_bounds=False)
 
     def test_clipping(self):
         """Should clip data when clip=True."""
@@ -65,15 +74,25 @@ class TestNoisyXtY:
                                    bounds_X=(-5, 5), bounds_y=(-20, 20))
         assert result.shape == (3,)
 
-    def test_no_bounds_warns(self):
-        """Should warn when bounds not provided."""
+    def test_no_bounds_raises_error_by_default(self):
+        """Should raise error when bounds not provided (default)."""
+        np.random.seed(42)
+        X = np.random.randn(100, 2)
+        y = np.random.randn(100)
+
+        with pytest.raises(ValueError, match="bounds.*required"):
+            compute_noisy_xty(X, y, epsilon=5.0, delta=1e-5,
+                            bounds_X=None, bounds_y=None)
+
+    def test_no_bounds_warns_when_require_bounds_false(self):
+        """Should warn when bounds not provided and require_bounds=False."""
         np.random.seed(42)
         X = np.random.randn(100, 2)
         y = np.random.randn(100)
 
         with pytest.warns(UserWarning, match="bounds"):
             compute_noisy_xty(X, y, epsilon=5.0, delta=1e-5,
-                            bounds_X=None, bounds_y=None)
+                            bounds_X=None, bounds_y=None, require_bounds=False)
 
     def test_clipping(self):
         """Should clip data when clip=True."""
@@ -108,13 +127,22 @@ class TestNoisyYtY:
                                    bounds_y=(-20, 20))
         assert isinstance(result, (int, float))
 
-    def test_no_bounds_warns(self):
-        """Should warn when bounds not provided."""
+    def test_no_bounds_raises_error_by_default(self):
+        """Should raise error when bounds not provided (default)."""
+        np.random.seed(42)
+        y = np.random.randn(100)
+
+        with pytest.raises(ValueError, match="bounds.*required"):
+            compute_noisy_yty(y, epsilon=5.0, delta=1e-5, bounds_y=None)
+
+    def test_no_bounds_warns_when_require_bounds_false(self):
+        """Should warn when bounds not provided and require_bounds=False."""
         np.random.seed(42)
         y = np.random.randn(100)
 
         with pytest.warns(UserWarning, match="bounds"):
-            compute_noisy_yty(y, epsilon=5.0, delta=1e-5, bounds_y=None)
+            compute_noisy_yty(y, epsilon=5.0, delta=1e-5, bounds_y=None,
+                            require_bounds=False)
 
     def test_clipping(self):
         """Should clip data when clip=True."""

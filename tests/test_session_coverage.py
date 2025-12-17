@@ -6,13 +6,20 @@ import pytest
 
 from dp_statsmodels import Session
 
+# Standard bounds for test data
+DEFAULT_BOUNDS_X = (-5, 5)
+DEFAULT_BOUNDS_Y = (-20, 20)
+
 
 class TestSessionProperties:
     """Tests for Session properties."""
 
     def test_delta_spent(self):
         """Should track delta spent."""
-        session = Session(epsilon=1.0, delta=1e-5)
+        session = Session(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         assert session.delta_spent == 0.0
 
         X = np.random.randn(100, 2)
@@ -23,7 +30,10 @@ class TestSessionProperties:
 
     def test_queries_count(self):
         """Should count queries."""
-        session = Session(epsilon=1.0, delta=1e-5)
+        session = Session(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         assert session.queries == 0
 
         X = np.random.randn(100, 2)
@@ -40,7 +50,10 @@ class TestSessionBudgetAllocation:
 
     def test_allocation_with_fraction(self):
         """Should allocate budget with fraction parameter."""
-        session = Session(epsilon=1.0, delta=1e-5)
+        session = Session(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         X = np.random.randn(100, 2)
         y = np.random.randn(100)
 
@@ -55,7 +68,10 @@ class TestSessionAliases:
     def test_logit_alias(self):
         """logit() should work like Logit()."""
         np.random.seed(42)
-        session = Session(epsilon=2.0, delta=1e-5)
+        session = Session(
+            epsilon=2.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X
+        )
         X = np.random.randn(100, 2)
         y = (np.random.rand(100) > 0.5).astype(float)
 
@@ -65,7 +81,10 @@ class TestSessionAliases:
     def test_fe_alias(self):
         """fe() should work like PanelOLS()."""
         np.random.seed(42)
-        session = Session(epsilon=5.0, delta=1e-5)
+        session = Session(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         n_entities, n_periods = 20, 3
         n = n_entities * n_periods
         groups = np.repeat(np.arange(n_entities), n_periods)
@@ -77,14 +96,20 @@ class TestSessionAliases:
 
     def test_summary(self):
         """summary() should return string."""
-        session = Session(epsilon=1.0, delta=1e-5)
+        session = Session(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         summary = session.summary()
         assert isinstance(summary, str)
         assert "budget" in summary.lower() or "epsilon" in summary.lower()
 
     def test_get_history_alias(self):
         """get_history() should return query history."""
-        session = Session(epsilon=1.0, delta=1e-5)
+        session = Session(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         X = np.random.randn(100, 2)
         y = np.random.randn(100)
 
@@ -95,7 +120,10 @@ class TestSessionAliases:
 
     def test_repr(self):
         """__repr__ should return string representation."""
-        session = Session(epsilon=1.0, delta=1e-5)
+        session = Session(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         repr_str = repr(session)
         assert "Session" in repr_str
         assert "ε=1.0" in repr_str
@@ -143,7 +171,10 @@ class TestPanelOLSEdgeCases:
     def test_panelols_no_entity_effects(self):
         """PanelOLS without entity_effects should run regular OLS."""
         np.random.seed(42)
-        session = Session(epsilon=5.0, delta=1e-5)
+        session = Session(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         n_entities, n_periods = 20, 3
         n = n_entities * n_periods
         groups = np.repeat(np.arange(n_entities), n_periods)
@@ -156,7 +187,10 @@ class TestPanelOLSEdgeCases:
     def test_panelols_no_groups_error(self):
         """PanelOLS without groups should raise error."""
         np.random.seed(42)
-        session = Session(epsilon=5.0, delta=1e-5)
+        session = Session(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         X = np.random.randn(100, 2)
         y = np.random.randn(100)
 
@@ -238,11 +272,12 @@ class TestRDPComposition:
         """RDP should handle orders <= 1."""
         from dp_statsmodels.privacy.accounting import PrivacyAccountant
         # RDP composition with small queries
-        accountant = PrivacyAccountant(
-            epsilon_budget=10.0,
-            delta_budget=1e-5,
-            composition="rdp"
-        )
+        with pytest.warns(UserWarning, match="RDP composition is experimental"):
+            accountant = PrivacyAccountant(
+                epsilon_budget=10.0,
+                delta_budget=1e-5,
+                composition="rdp"
+            )
         # Make many small queries to exercise RDP accounting
         for _ in range(10):
             accountant.spend(epsilon=0.1, delta=0)
@@ -253,11 +288,12 @@ class TestRDPComposition:
         """RDP spend should call _add_rdp."""
         from dp_statsmodels.privacy.accounting import PrivacyAccountant
         # Use RDP composition and spend
-        accountant = PrivacyAccountant(
-            epsilon_budget=10.0,
-            delta_budget=1e-5,
-            composition="rdp"
-        )
+        with pytest.warns(UserWarning, match="RDP composition is experimental"):
+            accountant = PrivacyAccountant(
+                epsilon_budget=10.0,
+                delta_budget=1e-5,
+                composition="rdp"
+            )
         accountant.spend(epsilon=0.5, delta=1e-6)
         # RDP accounting should be active
         assert accountant.epsilon_spent > 0

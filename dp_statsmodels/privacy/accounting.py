@@ -8,6 +8,7 @@ composition theorems.
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Literal
+import warnings
 import numpy as np
 
 
@@ -36,8 +37,9 @@ class PrivacyAccountant:
     delta_budget : float
         Total delta budget available.
     composition : {'basic', 'rdp'}
-        Composition method. 'basic' uses simple sequential composition,
-        'rdp' uses Rényi DP for tighter bounds.
+        Composition method. 'basic' uses simple sequential composition.
+        'rdp' uses Rényi DP for tighter bounds but is currently experimental
+        and uses a simplified approximation - use with caution.
 
     Attributes
     ----------
@@ -84,6 +86,12 @@ class PrivacyAccountant:
 
         # For RDP composition
         if composition == "rdp":
+            warnings.warn(
+                "RDP composition is experimental and uses a simplified approximation. "
+                "For production use with strict privacy requirements, use 'basic' "
+                "composition which provides conservative sequential composition bounds.",
+                UserWarning
+            )
             self._rdp_orders = [1.5, 2, 2.5, 3, 4, 5, 6, 8, 16, 32, 64]
             self._rdp_spent = np.zeros(len(self._rdp_orders))
 

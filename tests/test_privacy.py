@@ -158,11 +158,12 @@ class TestPrivacyAccountantAdvanced:
     def test_rdp_composition_tighter(self):
         """RDP composition should give tighter bounds than basic composition."""
         # Count how many queries each can support with same budget
-        accountant_rdp = PrivacyAccountant(
-            epsilon_budget=1.0,
-            delta_budget=1e-5,
-            composition="rdp"
-        )
+        with pytest.warns(UserWarning, match="RDP composition is experimental"):
+            accountant_rdp = PrivacyAccountant(
+                epsilon_budget=1.0,
+                delta_budget=1e-5,
+                composition="rdp"
+            )
         accountant_basic = PrivacyAccountant(
             epsilon_budget=1.0,
             delta_budget=1e-5,

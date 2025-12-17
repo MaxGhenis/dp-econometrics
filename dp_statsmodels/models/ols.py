@@ -3,12 +3,15 @@ Differentially Private OLS using Noisy Sufficient Statistics.
 
 Implements OLS regression with (ε,δ)-differential privacy by adding
 calibrated Gaussian noise to X'X and X'y before solving for β.
+
+Standard errors account for both sampling variance and privacy noise variance
+using the formula from Evans et al. (2024).
 """
 
 import numpy as np
 from scipy import stats
-from dataclasses import dataclass
-from typing import Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Optional, Tuple, Union
 import warnings
 
 from dp_statsmodels.privacy import (
@@ -17,6 +20,7 @@ from dp_statsmodels.privacy import (
     compute_xtx_sensitivity,
     compute_xty_sensitivity,
 )
+from dp_statsmodels.privacy.noisy_stats import compute_noisy_yty, _get_rng
 
 
 @dataclass
@@ -42,6 +46,8 @@ class DPOLSResults:
         Privacy budget consumed.
     delta_used : float
         Delta parameter used.
+    resid_var : float
+        Estimated residual variance (from noisy sufficient statistics).
     """
     params: np.ndarray
     bse: np.ndarray
@@ -52,8 +58,9 @@ class DPOLSResults:
     epsilon_used: float
     delta_used: float
     resid_var: float
-    _noisy_xtx: np.ndarray  # For variance computation
-    _noisy_xty: np.ndarray
+    _noisy_xtx: np.ndarray = field(repr=False)  # For variance computation
+    _noisy_xty: np.ndarray = field(repr=False)
+    _add_constant: bool = field(default=True, repr=False)
 
     def conf_int(self, alpha: float = 0.05) -> np.ndarray:
         """
@@ -69,13 +76,42 @@ class DPOLSResults:
         np.ndarray of shape (k, 2)
             Lower and upper bounds for each coefficient.
         """
-        # Use t-distribution
+        # Use t-distribution for finite sample inference
         t_crit = stats.t.ppf(1 - alpha / 2, self.df_resid)
 
         ci_lower = self.params - t_crit * self.bse
         ci_upper = self.params + t_crit * self.bse
 
         return np.column_stack([ci_lower, ci_upper])
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """
+        Generate predictions for new data.
+
+        Note: Predictions use the noisy coefficients, so they inherit
+        the privacy guarantee. No additional privacy budget is consumed.
+
+        Parameters
+        ----------
+        X : np.ndarray of shape (n, k) or (n, k-1)
+            Design matrix. If add_constant was True during fitting and
+            X has k-1 columns, a constant column will be added.
+
+        Returns
+        -------
+        np.ndarray of shape (n,)
+            Predicted values.
+        """
+        X = np.asarray(X)
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
+
+        # Add constant if needed
+        n_features = len(self.params) - 1 if self._add_constant else len(self.params)
+        if X.shape[1] == n_features and self._add_constant:
+            X = np.column_stack([np.ones(X.shape[0]), X])
+
+        return X @ self.params
 
     def summary(self) -> str:
         """
@@ -130,10 +166,15 @@ class DPOLS:
         Privacy parameter ε.
     delta : float
         Privacy parameter δ.
-    bounds_X : tuple of (min, max), optional
+    bounds_X : tuple of (min, max)
         Bounds on feature values. Required for proper DP.
-    bounds_y : tuple of (min, max), optional
+    bounds_y : tuple of (min, max)
         Bounds on response variable. Required for proper DP.
+    random_state : int or np.random.Generator, optional
+        Random state for reproducibility.
+    require_bounds : bool
+        If True (default), raise error when bounds not provided.
+        Set to False only for testing/development.
 
     Examples
     --------
@@ -156,6 +197,8 @@ class DPOLS:
         delta: float,
         bounds_X: Optional[Tuple[float, float]] = None,
         bounds_y: Optional[Tuple[float, float]] = None,
+        random_state: Optional[Union[int, np.random.Generator]] = None,
+        require_bounds: bool = True,
     ):
         if epsilon <= 0:
             raise ValueError("epsilon must be positive")
@@ -166,6 +209,8 @@ class DPOLS:
         self.delta = delta
         self.bounds_X = bounds_X
         self.bounds_y = bounds_y
+        self.random_state = random_state
+        self.require_bounds = require_bounds
 
     def fit(
         self,
@@ -192,9 +237,15 @@ class DPOLS:
         -------
         DPOLSResults
             Results object with coefficients, standard errors, etc.
+
+        Raises
+        ------
+        ValueError
+            If bounds_X or bounds_y not provided and require_bounds is True.
         """
         y = np.asarray(y).flatten()
         X = np.asarray(X)
+        rng = _get_rng(self.random_state)
 
         if X.ndim == 1:
             X = X.reshape(-1, 1)
@@ -211,19 +262,32 @@ class DPOLS:
         bounds_y = self.bounds_y
 
         if bounds_X is None:
-            warnings.warn(
-                "bounds_X not provided. Computing from data, which leaks privacy. "
-                "For proper differential privacy, provide explicit bounds.",
-                UserWarning
-            )
-            bounds_X = (X.min(), X.max())
+            if self.require_bounds:
+                raise ValueError(
+                    "bounds_X is required for differential privacy guarantees. "
+                    "Computing bounds from data completely breaks privacy. "
+                    "Set require_bounds=False only for testing/development."
+                )
+            else:
+                warnings.warn(
+                    "bounds_X not provided. Computing from data leaks privacy.",
+                    UserWarning
+                )
+                bounds_X = (X.min(), X.max())
 
         if bounds_y is None:
-            warnings.warn(
-                "bounds_y not provided. Computing from data, which leaks privacy.",
-                UserWarning
-            )
-            bounds_y = (y.min(), y.max())
+            if self.require_bounds:
+                raise ValueError(
+                    "bounds_y is required for differential privacy guarantees. "
+                    "Computing bounds from data completely breaks privacy. "
+                    "Set require_bounds=False only for testing/development."
+                )
+            else:
+                warnings.warn(
+                    "bounds_y not provided. Computing from data leaks privacy.",
+                    UserWarning
+                )
+                bounds_y = (y.min(), y.max())
 
         # Handle weights (WLS)
         if weights is not None:
@@ -232,14 +296,26 @@ class DPOLS:
             X = X * sqrt_w[:, np.newaxis]
             y = y * sqrt_w
 
-        # Split privacy budget between X'X and X'y
-        eps_xtx = self.epsilon * 0.5
-        eps_xty = self.epsilon * 0.5
-        delta_each = self.delta / 2
+        # Split privacy budget: 40% X'X, 40% X'y, 20% y'y (for residual variance)
+        eps_xtx = self.epsilon * 0.4
+        eps_xty = self.epsilon * 0.4
+        eps_yty = self.epsilon * 0.2
+        delta_each = self.delta / 3
 
         # Compute noisy sufficient statistics
-        noisy_xtx = compute_noisy_xtx(X, eps_xtx, delta_each, bounds_X)
-        noisy_xty = compute_noisy_xty(X, y, eps_xty, delta_each, bounds_X, bounds_y)
+        noisy_xtx = compute_noisy_xtx(
+            X, eps_xtx, delta_each, bounds_X,
+            random_state=rng, require_bounds=False  # Already validated above
+        )
+        noisy_xty = compute_noisy_xty(
+            X, y, eps_xty, delta_each, bounds_X, bounds_y,
+            random_state=rng, require_bounds=False
+        )
+        # Compute noisy y'y for residual variance (fixes privacy leak)
+        noisy_yty = compute_noisy_yty(
+            y, eps_yty, delta_each, bounds_y,
+            random_state=rng, require_bounds=False
+        )
 
         # Ensure X'X is positive definite (regularize if needed)
         min_eig = np.min(np.linalg.eigvalsh(noisy_xtx))
@@ -261,43 +337,52 @@ class DPOLS:
             )
             params = np.linalg.lstsq(noisy_xtx, noisy_xty, rcond=None)[0]
 
-        # Compute standard errors
-        # The variance of β̂ = (X'X)^{-1} X'y includes both:
-        # 1. Sampling variance: σ² (X'X)^{-1}
-        # 2. Privacy noise variance
-
-        # Estimate residual variance (using noisy estimate)
-        # Note: This is approximate since we don't have true residuals
-        y_mean = np.mean(y)
-        ss_total = np.sum((y - y_mean) ** 2)
-        ss_explained = params @ noisy_xtx @ params - n * y_mean ** 2
-        ss_resid = max(ss_total - ss_explained, 1e-10)
-        resid_var = ss_resid / (n - k)
-
-        # Compute variance of β̂
-        # Var(β̂) = σ² (X'X)^{-1} + Var_noise
+        # Compute (X'X)^{-1} for variance computation
         try:
             xtx_inv = np.linalg.inv(noisy_xtx)
         except np.linalg.LinAlgError:
             xtx_inv = np.linalg.pinv(noisy_xtx)
 
-        # Sampling variance component
-        var_sampling = resid_var * xtx_inv
+        # Estimate residual variance using ONLY noisy sufficient statistics
+        # RSS = y'y - 2β'X'y + β'X'Xβ = y'y - β'X'y (since β = (X'X)^{-1}X'y)
+        # This is computed entirely from noisy statistics, fixing the privacy leak
+        noisy_rss = noisy_yty - params @ noisy_xty
+        resid_var = max(noisy_rss / (n - k), 1e-10)
 
-        # Privacy noise variance component
-        # The noise added to X'X and X'y propagates to β̂
+        # Compute standard errors using proper variance formula from Evans et al. (2024)
+        # Var(β̂) = (X'X)^{-1} [σ² X'X + Var(N_Xy)] (X'X)^{-1} + higher order terms
+        #
+        # For the X'y noise: Var(β̂)_xty = (X'X)^{-1} Σ_Xy (X'X)^{-1}
+        # where Σ_Xy = σ²_xty * I (independent noise on each component)
+        #
+        # For the X'X noise: This is more complex, but we use a first-order
+        # approximation: Var(β̂)_xtx ≈ ||β||² σ²_xtx * diag((X'X)^{-2})
+
         sens_xtx = compute_xtx_sensitivity(bounds_X, k)
         sens_xty = compute_xty_sensitivity(bounds_X, bounds_y, k)
 
         sigma_xtx = sens_xtx * np.sqrt(2 * np.log(1.25 / delta_each)) / eps_xtx
         sigma_xty = sens_xty * np.sqrt(2 * np.log(1.25 / delta_each)) / eps_xty
 
-        # Approximate variance from noise (using delta method)
-        # This is a simplified approximation
-        var_noise_diag = (sigma_xty ** 2 + params ** 2 * sigma_xtx ** 2) * np.diag(xtx_inv ** 2)
+        # Sampling variance component: σ² (X'X)^{-1}
+        var_sampling = resid_var * np.diag(xtx_inv)
+
+        # Privacy noise variance from X'y:
+        # Var(β̂) from X'y noise = (X'X)^{-1} * σ²_xty * I * (X'X)^{-1}
+        # = σ²_xty * (X'X)^{-1} * (X'X)^{-1}
+        # Diagonal elements: σ²_xty * sum_j (xtx_inv[i,j])^2
+        var_xty_noise = sigma_xty ** 2 * np.sum(xtx_inv ** 2, axis=1)
+
+        # Privacy noise variance from X'X (first-order approximation):
+        # Uses the fact that d(β)/d(X'X) involves β and (X'X)^{-1}
+        # Approximation: σ²_xtx * ||β||² * diag((X'X)^{-2})
+        # This is conservative (tends to overestimate variance)
+        beta_norm_sq = np.sum(params ** 2)
+        xtx_inv_sq_diag = np.diag(xtx_inv @ xtx_inv)
+        var_xtx_noise = sigma_xtx ** 2 * beta_norm_sq * xtx_inv_sq_diag
 
         # Total variance
-        var_total = np.diag(var_sampling) + var_noise_diag
+        var_total = var_sampling + var_xty_noise + var_xtx_noise
         bse = np.sqrt(np.maximum(var_total, 1e-10))
 
         # t-statistics and p-values
@@ -316,4 +401,5 @@ class DPOLS:
             resid_var=resid_var,
             _noisy_xtx=noisy_xtx,
             _noisy_xty=noisy_xty,
+            _add_constant=add_constant,
         )

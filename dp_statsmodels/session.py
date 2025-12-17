@@ -6,7 +6,7 @@ analyses while tracking cumulative privacy loss.
 """
 
 import numpy as np
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Union
 
 from dp_statsmodels.privacy import PrivacyAccountant
 from dp_statsmodels.models import (
@@ -35,10 +35,15 @@ class Session:
         Total delta budget for the session.
     composition : {'basic', 'rdp'}
         Composition method for combining privacy costs.
-    bounds_X : tuple of (min, max), optional
-        Default bounds for features.
-    bounds_y : tuple of (min, max), optional
-        Default bounds for response variable.
+    bounds_X : tuple of (min, max)
+        Default bounds for features. Required for proper DP.
+    bounds_y : tuple of (min, max)
+        Default bounds for response variable. Required for proper DP.
+    random_state : int or np.random.Generator, optional
+        Random state for reproducibility.
+    require_bounds : bool
+        If True (default), raise error when bounds not provided.
+        Set to False only for testing/development.
 
     Attributes
     ----------
@@ -50,7 +55,8 @@ class Session:
     Examples
     --------
     >>> import dp_statsmodels.api as sm_dp
-    >>> session = sm_dp.Session(epsilon=1.0, delta=1e-5)
+    >>> session = sm_dp.Session(epsilon=1.0, delta=1e-5,
+    ...                         bounds_X=(-10, 10), bounds_y=(-100, 100))
     >>> result = session.OLS(y, X)
     >>> print(f"Budget remaining: ε = {session.epsilon_remaining:.3f}")
 
@@ -58,7 +64,6 @@ class Session:
     -----
     The session tracks privacy using composition theorems. By default,
     basic sequential composition is used, which adds epsilon values.
-    For tighter accounting with many queries, use composition='rdp'.
     """
 
     def __init__(
@@ -68,11 +73,15 @@ class Session:
         composition: str = "basic",
         bounds_X: Optional[Tuple[float, float]] = None,
         bounds_y: Optional[Tuple[float, float]] = None,
+        random_state: Optional[Union[int, np.random.Generator]] = None,
+        require_bounds: bool = True,
     ):
         self.epsilon = epsilon
         self.delta = delta
         self.bounds_X = bounds_X
         self.bounds_y = bounds_y
+        self.random_state = random_state
+        self.require_bounds = require_bounds
 
         self._accountant = PrivacyAccountant(
             epsilon_budget=epsilon,
@@ -178,7 +187,7 @@ class Session:
         Raises
         ------
         ValueError
-            If privacy budget is exhausted.
+            If privacy budget is exhausted or bounds not provided.
         """
         # Allocate budget
         query_eps, query_delta = self._allocate_budget(epsilon=epsilon)
@@ -202,6 +211,8 @@ class Session:
             delta=query_delta,
             bounds_X=bounds_X,
             bounds_y=bounds_y,
+            random_state=self.random_state,
+            require_bounds=self.require_bounds,
         )
 
         result = model.fit(y, X, weights=weights, add_constant=add_constant)

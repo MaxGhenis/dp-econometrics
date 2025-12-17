@@ -7,6 +7,10 @@ TDD: These tests define the target API before implementation.
 import numpy as np
 import pytest
 
+# Standard bounds for test data
+DEFAULT_BOUNDS_X = (-5, 5)
+DEFAULT_BOUNDS_Y = (-20, 20)
+
 
 class TestImportPatterns:
     """Test that import patterns work like statsmodels."""
@@ -69,7 +73,10 @@ class TestSessionAPI:
         """Session should be created with privacy budget."""
         import dp_statsmodels.api as sm_dp
 
-        session = sm_dp.Session(epsilon=1.0, delta=1e-5)
+        session = sm_dp.Session(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         assert session.epsilon == 1.0
         assert session.delta == 1e-5
         assert session.epsilon_spent == 0.0
@@ -92,7 +99,10 @@ class TestSessionAPI:
         import dp_statsmodels.api as sm_dp
         X, y = regression_data
 
-        session = sm_dp.Session(epsilon=5.0, delta=1e-5)
+        session = sm_dp.Session(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         result = session.OLS(y, X)
 
         assert hasattr(result, 'params')
@@ -104,7 +114,10 @@ class TestSessionAPI:
         import dp_statsmodels.api as sm_dp
         X, y = binary_data
 
-        session = sm_dp.Session(epsilon=5.0, delta=1e-5)
+        session = sm_dp.Session(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X
+        )
         result = session.Logit(y, X)
 
         assert hasattr(result, 'params')
@@ -115,7 +128,10 @@ class TestSessionAPI:
         import dp_statsmodels.api as sm_dp
         X, y, groups = panel_data
 
-        session = sm_dp.Session(epsilon=5.0, delta=1e-5)
+        session = sm_dp.Session(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=(-50, 50)
+        )
         result = session.PanelOLS(y, X, groups=groups, entity_effects=True)
 
         assert hasattr(result, 'params')
@@ -126,7 +142,10 @@ class TestSessionAPI:
         import dp_statsmodels.api as sm_dp
         X, y = regression_data
 
-        session = sm_dp.Session(epsilon=1.0, delta=1e-5)
+        session = sm_dp.Session(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
 
         session.OLS(y, X, epsilon=0.3)
         assert session.epsilon_spent == pytest.approx(0.3, rel=0.01)
@@ -139,7 +158,10 @@ class TestSessionAPI:
         import dp_statsmodels.api as sm_dp
         X, y = regression_data
 
-        with sm_dp.Session(epsilon=1.0, delta=1e-5) as session:
+        with sm_dp.Session(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        ) as session:
             result = session.OLS(y, X)
             assert result is not None
 
@@ -149,7 +171,10 @@ class TestSessionAPI:
         X, y = regression_data
         X_bin, y_bin = binary_data
 
-        session = sm_dp.Session(epsilon=2.0, delta=1e-5)
+        session = sm_dp.Session(
+            epsilon=2.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         session.OLS(y, X)
         session.Logit(y_bin, X_bin)
 
@@ -176,7 +201,10 @@ class TestStandaloneModelAPI:
         X, y = simple_data
 
         # Current API: OLS(epsilon=...).fit(y, X)
-        model = sm_dp.OLS(epsilon=1.0, delta=1e-5)
+        model = sm_dp.OLS(
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         result = model.fit(y, X)
 
         assert hasattr(result, 'params')
@@ -206,7 +234,7 @@ class TestStandaloneModelAPI:
         X = np.random.randn(n, 2)
         y = (np.random.rand(n) > 0.5).astype(float)
 
-        model = sm_dp.Logit(epsilon=1.0, delta=1e-5)
+        model = sm_dp.Logit(epsilon=1.0, delta=1e-5, bounds_X=DEFAULT_BOUNDS_X)
         result = model.fit(y, X)
 
         assert hasattr(result, 'params')
@@ -223,8 +251,8 @@ class TestStandaloneModelAPI:
         y = np.random.randn(n)
 
         model = sm_dp.PanelOLS(
-            epsilon=1.0,
-            delta=1e-5
+            epsilon=1.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
         )
         result = model.fit(y, X, groups)
 
@@ -243,7 +271,10 @@ class TestResultsInterface:
         X = np.random.randn(n, 2)
         y = X @ [1, 2] + np.random.randn(n)
 
-        session = sm_dp.Session(epsilon=5.0, delta=1e-5)
+        session = sm_dp.Session(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
         return session.OLS(y, X)
 
     def test_result_params(self, fitted_result):
@@ -308,7 +339,10 @@ class TestBackwardsCompatibility:
         X = np.random.randn(100, 2)
         y = np.random.randn(100)
 
-        session = sm_dp.Session(epsilon=5.0, delta=1e-5)
+        session = sm_dp.Session(
+            epsilon=5.0, delta=1e-5,
+            bounds_X=DEFAULT_BOUNDS_X, bounds_y=DEFAULT_BOUNDS_Y
+        )
 
         # Old style (lowercase) should still work
         result = session.ols(y, X)
