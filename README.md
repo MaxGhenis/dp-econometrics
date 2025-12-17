@@ -48,7 +48,7 @@ X = np.random.randn(n, 3)
 y = X @ [1, 2, 3] + np.random.randn(n)
 
 # Run DP OLS
-result = session.ols(y, X)
+result = session.OLS(y, X)
 
 # View results (coefficients + standard errors)
 print(result.summary())

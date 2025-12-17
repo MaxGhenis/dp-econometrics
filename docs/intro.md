@@ -55,7 +55,7 @@ X = np.random.randn(n, k)
 y = X @ [1, 2, 3] + np.random.randn(n)
 
 # Fit OLS with differential privacy
-result = session.ols(y, X)
+result = session.OLS(y, X)
 
 # Results include coefficients AND valid standard errors
 print(result.summary())
