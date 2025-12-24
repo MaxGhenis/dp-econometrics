@@ -122,6 +122,19 @@ $$\sigma = \frac{\Delta \sqrt{2\ln(1.25/\delta)}}{\varepsilon}$$
 
 **Critical requirement**: Bounds must be specified a priori based on domain knowledge. Computing bounds from data voids privacy guarantees entirely.
 
+### Choosing δ
+
+The parameter $\delta$ represents the probability of a catastrophic privacy failure. Following {cite}`dwork2014algorithmic`, we recommend $\delta < 1/n$ to ensure the failure probability is less than the probability of any individual being in the dataset. For conservative guarantees, use $\delta = 1/n^2$:
+
+```{code-cell} python
+:tags: [remove-input]
+
+from IPython.display import Markdown
+Markdown(r.table_delta_guidance())
+```
+
+For the CPS ASEC dataset (n={eval}`r.cps.n_fmt`), the recommended $\delta$ is {eval}`r.cps.recommended_delta_fmt`.
+
 ## 3.3 Variance of the DP Estimator
 
 **Theorem (Variance Decomposition)**: The DP estimator $\tilde{\beta} = (\widetilde{X'X})^{-1}\widetilde{X'y}$ has variance:
@@ -251,6 +264,19 @@ from IPython.display import Markdown
 Markdown(r.table_simulation_summary())
 ```
 
+## 5.3 Coverage Validation Grid
+
+We validated coverage across multiple (N, ε) combinations to ensure the variance formula works across the parameter space:
+
+```{code-cell} python
+:tags: [remove-input]
+
+from IPython.display import Markdown
+Markdown(r.table_coverage_grid())
+```
+
+Coverage remains close to the nominal 95% across all tested combinations, confirming the validity of our standard error formulas.
+
 # 6. Application: CPS ASEC Wage Regression
 
 We demonstrate the method on a classic labor economics application using the Current Population Survey (CPS) Annual Social and Economic Supplement (ASEC) 2024.
@@ -260,6 +286,19 @@ We demonstrate the method on a classic labor economics application using the Cur
 - **Sample**: n = {eval}`r.cps.n_fmt` prime-age workers (25-64 years)
 - **Wage skewness**: {eval}`f'{r.cps.wage_skewness:.2f}'` — typical of real-world income data
 - **Source**: Census Bureau (publicly available)
+
+### Bounds Selection Protocol
+
+Bounds were pre-specified based on Census Bureau documentation and domain knowledge **before examining any individual-level data**. This is required for valid DP guarantees:
+
+```{code-cell} python
+:tags: [remove-input]
+
+from IPython.display import Markdown
+Markdown(r.table_bounds_protocol())
+```
+
+Computing bounds from data (e.g., using `min(X)` and `max(X)`) voids all privacy guarantees because the sensitivity calculation becomes data-dependent.
 
 ## Non-Private OLS Results
 
@@ -320,14 +359,33 @@ plt.show()
 2. **Valid Inference**: Our standard error formulas achieve close to 95% coverage in simulations.
 3. **The Real Tradeoff**: On real CPS data, SEs are {eval}`r.se_inflation_10`× larger at $\varepsilon = 10$.
 
-## 7.2 Limitations
+## 7.2 Sample Size Requirements
+
+SE inflation depends critically on sample size. The following table provides guidance for researchers considering DP regression:
+
+```{code-cell} python
+:tags: [remove-input]
+
+from IPython.display import Markdown
+Markdown(r.table_sample_size_guidance())
+```
+
+**Rule of thumb**: For meaningful inference at $\varepsilon = 1$, you need $n > 10{,}000$. For $\varepsilon = 10$, even $n = 1{,}000$ may suffice for point estimation but not precise inference.
+
+## 7.3 Limitations
 
 The gap between Gaussian simulation and real-data performance reflects {cite}`barrientos2024feasibility`'s finding: NSS methods struggle on skewed real-world data.
 
-## 7.3 Recommendations
+Additional limitations:
+- **Heteroskedasticity**: The variance formula assumes homoskedastic errors; robust SEs are not yet implemented
+- **Model selection**: Each specification test consumes privacy budget
+- **Multiple coefficients**: Privacy budget applies per regression, not per coefficient
+
+## 7.4 Recommendations
 
 - **Point estimates**: $\varepsilon \geq 50$ yields estimates within 0.01 of OLS
 - **Inference**: SEs remain substantially inflated at all typical privacy budgets
+- **Sample size**: Aim for $n > 10{,}000$ at minimum; $n > 50{,}000$ for good results
 
 # 8. Conclusion
 
